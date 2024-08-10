@@ -1,6 +1,7 @@
+
 # uvicorn main:app
 # uvicorn main:app --reload
-
+import json
 
 # Main Imports
 from fastapi import FastAPI, File, UploadFile, HTTPException
@@ -8,17 +9,15 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from decouple import config
 import openai
-
+from pydantic import BaseModel
 
 # Custom Function Imports
 from functions.database import store_messages, reset_messages
 from functions.openai_requests import convert_audio_to_text, get_chat_response
 from functions.text_to_speech import convert_text_to_speech
 
-
 # Initiate App
 app = FastAPI()
-
 
 # CORS - Origins
 origins = [
@@ -28,7 +27,6 @@ origins = [
     "http://localhost:4174",
     "http://localhost:3000",
 ]
-
 
 # CORS - Middleware
 app.add_middleware(
@@ -44,20 +42,18 @@ app.add_middleware(
 @app.get("/reset")
 async def reset_conversation():
     reset_messages()
-    return{"message": "Conversation reset"}
+    return {"message": "Conversation reset"}
 
 
 # Reset messages
 @app.get("/health")
 async def check_health():
-    return{"message": "Healthy"}
-
+    return {"message": "Healthy"}
 
 
 # Get Audio
 @app.post("/post-audio/")
 async def post_audio(file: UploadFile = File(...)):
-
     # Get Saved Audio
     # audio_input = open("jin_voice.mp3", "rb")
 
@@ -65,7 +61,6 @@ async def post_audio(file: UploadFile = File(...)):
     with open(file.filename, "wb") as buffer:
         buffer.write(file.file.read())
     audio_input = open(file.filename, "rb")
-
 
     # Decode Audio
     message_decoded = convert_audio_to_text(audio_input)
@@ -78,36 +73,38 @@ async def post_audio(file: UploadFile = File(...)):
     # Get ChatGPT Response
     chat_response = get_chat_response(message_decoded)
 
-
     # Guard: Ensure message decoded
     if not chat_response:
         return HTTPException(status_code=400, detail="Failed to get chat response")
 
-
     # Store messages
     store_messages(message_decoded, chat_response)
 
-    # print(chat_response)
-    # Convert chat response to audio
-    print(chat_response)
-    audio_output = convert_text_to_speech(chat_response)
+    result = {
+        "answer": chat_response,
+        "question": message_decoded,
+    }
+    return result
 
+
+class TextModel(BaseModel):
+    text: str
+
+
+@app.post('/transform')
+async def transform_audio(item: TextModel):
+    print(item.text)
+    audio_output = convert_text_to_speech(item.text)
 
     # Guard: Ensure message decoded
     if not audio_output:
         return HTTPException(status_code=400, detail="Failed to get Eleven labs audio response")
-    
 
     # Create a generater that yields chunk of data
     def iterfile():
         yield audio_output
 
-    # Return audio file
     return StreamingResponse(iterfile(), media_type="application/octet-stream")
-
-
-    # return "Done"
-
 
 # # Post bot Response
 # # Note: Not playing in browser when using post request
