@@ -1,11 +1,13 @@
-import { useState } from 'react';
+
+import { useState, useRef } from 'react';
 import Title from "./Title";
 import RecordMessage from './RecordMessage';
 import axios from "axios";
-
+import defaultMp4 from "../videos/default.mp4"
 // Jin Debug line
 const Controller: React.FC = () => {
 
+  const videoRef = useRef<HTMLVideoElement>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [messages, setMessages] = useState<any[]>([]);
 
@@ -24,8 +26,7 @@ const Controller: React.FC = () => {
 
 
     // Append recorded message to messages
-    const myMessage = { sender: "me", blobUrl: blobUrl };
-    const messagesArr = [...messages, myMessage];
+    const myMessage = { sender: "me", blobUrl: blobUrl, content: '' };
 
     // Convert blobUrl to blob object
     fetch(blobUrl).then((res) =>res.blob()).then(async (blob) => {
@@ -35,20 +36,29 @@ const Controller: React.FC = () => {
       formData.append("file", blob, "myFile.wav");
 
       //  Send form Data to API endpoint
-      await axios.post("http://localhost:8000/post-audio", formData, {headers: {"Content-Type": "audio/mpeg"}, responseType: "arraybuffer", }).then((res: any) => {
-        const blob = res.data;
-        const audio = new Audio();
-        audio.src = createBlobUrl(blob);
+      await axios.post("http://localhost:8000/post-audio", formData, {headers: {"Content-Type": "audio/mpeg"}}).then(async (res: any) => {
+        console.log(res.data)
+        myMessage.content = res.data.question;
+        const messagesArr = [...messages, myMessage];
 
-        // Append to audio
-        const rachelMessage = {sender:"JinXi", blobUrl: audio.src };
-        messagesArr.push(rachelMessage);
+        await axios.post("http://localhost:8000/transform", {text: res.data.answer}, {headers: {"Content-Type": "application/json"}, responseType: "arraybuffer", }).then(resp => {
+          const blob = resp.data;
+          const audio = new Audio();
+          audio.src = createBlobUrl(blob);
+          audio.onended = handleAudioEnded;
+  
+          // Append to audio
+          const rachelMessage = {sender:"JinXi", blobUrl: audio.src, content: res.data.answer };
+          messagesArr.push(rachelMessage);
+  
+          setMessages(messagesArr);
+  
+          // Play audio
+          setIsLoading(false);
+          audio.play();
+          videoRef.current?.play();
+        });
 
-        setMessages(messagesArr);
-
-        // Play audio
-        setIsLoading(false);
-        audio.play();
 
       }).catch((err) => {
         console.error(err.message);
@@ -57,8 +67,14 @@ const Controller: React.FC = () => {
 
     });
 
+  };
 
-
+  const handleAudioEnded = () => {
+    console.log('event trigger')
+    if(videoRef.current != null) {
+      videoRef.current.pause();
+      videoRef.current.currentTime = 0;
+    }
 
   };
 
@@ -66,7 +82,11 @@ const Controller: React.FC = () => {
     <div className="h-screen overflow-y-hidden">
         <Title setMessages={setMessages}/>
         <div className="flex flex-col justify-between h-full overflow-y-scroll pb-96">
-            
+        <div className='ml-10'>
+          <video ref={videoRef} muted width="240">
+            <source src={defaultMp4} type="video/mp4" />
+          </video>
+        </div>
 
             {/* <audio src={blob} controls/> */}
 
@@ -82,8 +102,8 @@ const Controller: React.FC = () => {
                     </p>
 
                     {/* Audio Messages */}
-                    <audio src={audio.blobUrl} className="appearance-none" controls />
-
+                    <audio onEnded={handleAudioEnded} src={audio.blobUrl} className="appearance-none" controls />
+                    <p className='text-xs bg-gray-100 p-3 mt-2'>{audio.content}</p>
                   </div>
 
                 </div>;
